@@ -1,0 +1,778 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Reshaping Odds Analyzer</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: system-ui, -apple-system, sans-serif;
+    font-size: 14px;
+    background: #f0f2f5;
+    color: #222;
+    padding: 16px;
+  }
+  h1 {
+    font-size: 1.3rem;
+    font-weight: 700;
+    margin-bottom: 14px;
+    color: #1a1a2e;
+  }
+  .card {
+    background: #fff;
+    border: 1px solid #dde1e7;
+    border-radius: 8px;
+    padding: 12px 14px;
+    margin-bottom: 10px;
+  }
+  .card-title {
+    font-size: 0.78rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #666;
+    margin-bottom: 8px;
+  }
+  /* Top row: two columns */
+  #top-row {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+  }
+  #col-stats { flex: 0 0 auto; }
+  #col-right  { flex: 1 1 auto; }
+
+  /* Stat groups */
+  .stat-groups {
+    display: flex;
+    gap: 8px;
+  }
+  .stat-group {
+    border: 1px solid #dde1e7;
+    border-radius: 6px;
+    padding: 8px 10px;
+  }
+  .stat-group-name {
+    font-size: 0.72rem;
+    color: #888;
+    margin-bottom: 6px;
+    font-weight: 600;
+  }
+  .stat-group label {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 0;
+    cursor: pointer;
+    user-select: none;
+  }
+  .stat-group input[type=checkbox]:disabled + span { color: #bbb; cursor: default; }
+
+  /* Radio groups */
+  .radio-row { display: flex; gap: 14px; flex-wrap: wrap; }
+  .radio-row label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+
+  /* Dynamic checkbox rows */
+  .check-row { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+  .check-row label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+
+  /* Base / weight grid */
+  .spin-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 16px;
+    align-items: center;
+  }
+  .spin-item {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .spin-item label { font-size: 13px; min-width: 32px; text-align: right; }
+  .spin-item input[type=number] {
+    width: 68px;
+    padding: 3px 5px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 13px;
+  }
+  .sum-label { font-size: 13px; margin-top: 6px; }
+  .sum-label.over { color: #d32f2f; font-weight: 600; }
+
+  /* Mode + focus row */
+  #mode-focus-row {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+  }
+  #mode-focus-row .card { flex: 0 0 auto; }
+  #card-focus { flex: 1 1 auto; }
+
+  /* Focus listbox */
+  #focus-list {
+    width: 100%;
+    min-width: 160px;
+    height: 110px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 13px;
+    font-family: monospace;
+    padding: 2px;
+  }
+
+  /* Run button */
+  #btn-run {
+    display: block;
+    width: 100%;
+    padding: 9px;
+    background: #3a5bd9;
+    color: #fff;
+    font-size: 15px;
+    font-weight: 600;
+    border: none;
+    border-radius: 7px;
+    cursor: pointer;
+    margin-bottom: 10px;
+    letter-spacing: 0.02em;
+  }
+  #btn-run:hover { background: #2d4cbf; }
+  #btn-run:active { background: #233ea8; }
+
+  /* Output */
+  #output {
+    width: 100%;
+    min-height: 180px;
+    padding: 10px;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 13px;
+    background: #1e1e2e;
+    color: #cdd6f4;
+    border: 1px solid #333;
+    border-radius: 7px;
+    resize: vertical;
+    white-space: pre;
+    overflow: auto;
+  }
+
+  /* Alert/warning */
+  .alert {
+    background: #fff3cd;
+    border: 1px solid #ffc107;
+    border-radius: 6px;
+    padding: 8px 12px;
+    margin-bottom: 8px;
+    font-size: 13px;
+    display: none;
+  }
+  .alert.show { display: block; }
+</style>
+</head>
+<body>
+<h1>Reshaping Odds Analyzer</h1>
+
+<div id="alert-box" class="alert"></div>
+
+<div id="top-row">
+  <!-- Stat selection -->
+  <div id="col-stats" class="card">
+    <div class="card-title">Select Stats (exactly 4)</div>
+    <div class="stat-groups" id="stat-groups"></div>
+  </div>
+
+  <!-- Right column -->
+  <div id="col-right">
+    <!-- Rolls -->
+    <div class="card">
+      <div class="card-title">Number of Rolls</div>
+      <div class="radio-row">
+        <label><input type="radio" name="num-rolls" value="4"> <span>4</span></label>
+        <label><input type="radio" name="num-rolls" value="5" checked> <span>5</span></label>
+      </div>
+    </div>
+
+    <!-- Guaranteed count -->
+    <div class="card">
+      <div class="card-title">Guaranteed Rolls</div>
+      <div class="radio-row">
+        <label><input type="radio" name="g-count" value="2" checked> <span>2</span></label>
+        <label><input type="radio" name="g-count" value="3"> <span>3</span></label>
+        <label><input type="radio" name="g-count" value="4"> <span>4</span></label>
+      </div>
+    </div>
+
+    <!-- Good stats -->
+    <div class="card">
+      <div class="card-title">Good Stats (uncheck = bad/ignored)</div>
+      <div class="check-row" id="good-stats-row">
+        <span style="color:#aaa;font-size:12px">Select stats above</span>
+      </div>
+    </div>
+
+    <!-- Guarantee stats -->
+    <div class="card">
+      <div class="card-title">Guarantee Stats (optional, pick 2)</div>
+      <div class="check-row" id="guarantee-stats-row">
+        <span style="color:#aaa;font-size:12px">Select stats above</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Base values -->
+<div class="card">
+  <div class="card-title">Base Values (%)</div>
+  <div class="spin-grid" id="base-grid">
+    <span style="color:#aaa;font-size:12px">Select stats above</span>
+  </div>
+  <div class="sum-label" id="base-sum">Sum: — / 900</div>
+</div>
+
+<!-- Weights -->
+<div class="card">
+  <div class="card-title">Stat Weights (Combined mode only)</div>
+  <div class="spin-grid" id="weight-grid">
+    <span style="color:#aaa;font-size:12px">Select stats above</span>
+  </div>
+</div>
+
+<!-- Output mode + focus -->
+<div id="mode-focus-row">
+  <div class="card">
+    <div class="card-title">Output Mode</div>
+    <div style="display:flex;flex-direction:column;gap:6px">
+      <label><input type="radio" name="output-mode" value="combined" checked> Combined</label>
+      <label><input type="radio" name="output-mode" value="single"> Single Stat</label>
+    </div>
+  </div>
+  <div class="card" id="card-focus">
+    <div class="card-title">Focus Stat (Single Stat mode)</div>
+    <select id="focus-list" size="5">
+      <option disabled>Select stats above</option>
+    </select>
+  </div>
+</div>
+
+<button id="btn-run">Run Analysis</button>
+<textarea id="output" readonly placeholder="Results will appear here..."></textarea>
+
+<script>
+// ─── Constants ────────────────────────────────────────────────────────────────
+const ALL_STATS = ['HP%', 'ATK%', 'CR', 'CD', 'ER', 'EM', 'FH', 'FA', 'FD', 'Def%'];
+const COLLAPSE = {CR:'C', CD:'C', FH:'F', FA:'F', FD:'F'};
+const GROUPS = [
+  {name: 'Other',           stats: ['HP%', 'ATK%', 'ER', 'EM', 'Def%']},
+  {name: 'C-group (→ C)',   stats: ['CR', 'CD']},
+  {name: 'F-group (→ F)',   stats: ['FH', 'FA', 'FD']},
+];
+const MULTIPLIERS = [7, 8, 9, 10];
+
+function collapsedName(s) { return COLLAPSE[s] || s; }
+
+// ─── Algorithm ────────────────────────────────────────────────────────────────
+
+/** Cartesian product of arr with itself, repeated `repeat` times */
+function cartesianProduct(arr, repeat) {
+  let result = [[]];
+  for (let i = 0; i < repeat; i++) {
+    const next = [];
+    for (const prefix of result)
+      for (const item of arr)
+        next.push([...prefix, item]);
+    result = next;
+  }
+  return result;
+}
+
+/** Convolve two {value: prob} dicts by summing values */
+function convolveDists(a, b) {
+  const result = {};
+  for (const [va, pa] of Object.entries(a)) {
+    for (const [vb, pb] of Object.entries(b)) {
+      const key = Number(va) + Number(vb);
+      result[key] = (result[key] || 0) + pa * pb;
+    }
+  }
+  return result;
+}
+
+/** Returns [pGreater, pEqual, pLess] as percentages */
+function probSummary(dist, baseInternal) {
+  let pGt = 0, pEq = 0, pLt = 0;
+  for (const [v, p] of Object.entries(dist)) {
+    const val = Number(v);
+    if (val > baseInternal) pGt += p;
+    else if (val === baseInternal) pEq += p;
+    else pLt += p;
+  }
+  return [pGt * 100, pEq * 100, pLt * 100];
+}
+
+function fmt(v) {
+  return Number.isInteger(v) ? String(v) : v.toFixed(1);
+}
+
+/**
+ * Main analysis function — direct port of Python run_analysis().
+ * Returns a string of text output.
+ */
+function runAnalysis(selectedStats, numRolls, guaranteeStats, guaranteeCount,
+                     bases, mode, focus, goodStats, weights) {
+  if (!goodStats) goodStats = new Set(selectedStats);
+  if (!weights)  weights = Object.fromEntries(selectedStats.map(s => [s, 1.0]));
+
+  const effBases = {};
+  for (const s of selectedStats)
+    effBases[s] = mode === 'combined' ? bases[s] * weights[s] : bases[s];
+
+  const lines = [];
+  const out = s => lines.push(s);
+
+  const statOutcomes = cartesianProduct(selectedStats, numRolls);
+  const n = selectedStats.length;
+  const nStat = statOutcomes.length;
+  const pPerPath = 1.0 / nStat;
+
+  const collapsedLabels = [...new Set(selectedStats.map(collapsedName))].sort();
+
+  // Header
+  const rollsStr = Array(numRolls).fill(n).join('x');
+  out(`Selected: ${selectedStats.join(', ')}   Rolls: ${numRolls}   Paths: ${rollsStr} = ${nStat}`);
+  out(`Base: ${selectedStats.map(s => `${s}=${bases[s]}`).join(', ')}  →  Total: ${selectedStats.reduce((a,s) => a + bases[s], 0)}%`);
+  const badStats = selectedStats.filter(s => !goodStats.has(s));
+  if (badStats.length)
+    out(`Good: ${selectedStats.filter(s => goodStats.has(s)).join(', ')}   Bad (ignored): ${badStats.join(', ')}`);
+  const nonDefaultWeights = Object.entries(weights).filter(([,w]) => w !== 1.0);
+  if (nonDefaultWeights.length)
+    out(`Weights: ${selectedStats.map(s => `${s}=${weights[s].toFixed(1)}`).join(', ')}`);
+  out('Each roll tier: 70% / 80% / 90% / 100%  (equal probability)');
+
+  // Determine focus details
+  const focusIsRaw = (mode === 'single' && selectedStats.includes(focus));
+  const focusNeedsRawDist = focusIsRaw && collapsedName(focus) !== focus;
+
+  let focusBaseDisplay, focusLabel;
+  if (mode === 'combined') {
+    focusBaseDisplay = selectedStats.filter(s => goodStats.has(s)).reduce((a,s) => a + effBases[s], 0);
+    focusLabel = nonDefaultWeights.length ? 'All stats (weighted)' : 'All stats';
+  } else if (focusIsRaw) {
+    focusBaseDisplay = goodStats.has(focus) ? bases[focus] : 0;
+    focusLabel = focus;
+  } else {
+    // collapsed label
+    const members = selectedStats.filter(s => collapsedName(s) === focus);
+    focusBaseDisplay = members.filter(s => goodStats.has(s)).reduce((a,s) => a + bases[s], 0);
+    focusLabel = members.length > 1 ? `${focus} (${members.join(' + ')})` : focus;
+  }
+
+  const focusBaseInternal = focusBaseDisplay * 10;
+  out(`\nFocus: ${focusLabel}  |  Current base: ${fmt(focusBaseDisplay)}%`);
+
+  // Marginal computation for one stat path
+  function computeMarginals(statPath) {
+    const perCollapsed = {};
+    for (const lbl of collapsedLabels) {
+      let dist = {0: 1.0};
+      for (const s of statPath) {
+        if (collapsedName(s) === lbl && goodStats.has(s)) {
+          const newDist = {};
+          for (const [v, p] of Object.entries(dist)) {
+            for (const m of MULTIPLIERS) {
+              const key = Number(v) + effBases[s] * m;
+              newDist[key] = (newDist[key] || 0) + p * 0.25;
+            }
+          }
+          dist = newDist;
+        }
+      }
+      perCollapsed[lbl] = dist;
+    }
+
+    const perRaw = {};
+    if (focusNeedsRawDist) {
+      let dist = {0: 1.0};
+      for (const s of statPath) {
+        if (s === focus && goodStats.has(s)) {
+          const newDist = {};
+          for (const [v, p] of Object.entries(dist)) {
+            for (const m of MULTIPLIERS) {
+              const key = Number(v) + effBases[s] * m;
+              newDist[key] = (newDist[key] || 0) + p * 0.25;
+            }
+          }
+          dist = newDist;
+        }
+      }
+      perRaw[focus] = dist;
+    }
+    return {perCollapsed, perRaw};
+  }
+
+  function extractFocusDist(perCollapsed, perRaw) {
+    if (mode === 'combined') {
+      let grand = {0: 1.0};
+      for (const lbl of collapsedLabels)
+        grand = convolveDists(grand, perCollapsed[lbl]);
+      return grand;
+    } else if (focusNeedsRawDist) {
+      return perRaw[focus];
+    } else if (focusIsRaw) {
+      return perCollapsed[collapsedName(focus)];
+    } else {
+      return perCollapsed[focus];
+    }
+  }
+
+  function formatPhase(label, rollup) {
+    const [pGt, pEq, pLt] = probSummary(rollup, focusBaseInternal);
+    const baseStr = fmt(focusBaseDisplay);
+    out(`\n=== ${label} ===`);
+    out(`  P(improve: ${focusLabel} > ${baseStr}%) = ${pGt.toFixed(2).padStart(6)}%`);
+    out(`  P(same:    ${focusLabel} = ${baseStr}%) = ${pEq.toFixed(2).padStart(6)}%`);
+    out(`  P(worse:   ${focusLabel} < ${baseStr}%) = ${pLt.toFixed(2).padStart(6)}%`);
+  }
+
+  // Phase 2: No guarantee
+  const rollup2 = {};
+  for (const statPath of statOutcomes) {
+    const {perCollapsed, perRaw} = computeMarginals(statPath);
+    for (const [v, p] of Object.entries(extractFocusDist(perCollapsed, perRaw))) {
+      rollup2[v] = (rollup2[v] || 0) + pPerPath * p;
+    }
+  }
+  formatPhase('No Guarantee', rollup2);
+
+  // Phase 3: With guarantee
+  if (guaranteeStats.length < 2) return lines.join('\n');
+  const validGuarantee = guaranteeStats.filter(g => selectedStats.includes(g));
+  if (validGuarantee.length < 2) return lines.join('\n');
+  const gStats = validGuarantee.slice(0, 2);
+  const guaranteePool = new Set(gStats.map(collapsedName));
+
+  function* applyGuarantee(statPath) {
+    const collapsed = statPath.map(collapsedName);
+    let gCount = collapsed.filter(c => guaranteePool.has(c)).length;
+    const forcedIndices = [];
+    for (let i = collapsed.length - 1; i >= 0; i--) {
+      if (gCount >= guaranteeCount) break;
+      if (!guaranteePool.has(collapsed[i])) {
+        forcedIndices.push(i);
+        gCount++;
+      }
+    }
+    if (forcedIndices.length === 0) {
+      yield [statPath, 1.0];
+      return;
+    }
+    for (const combo of cartesianProduct(gStats, forcedIndices.length)) {
+      const newPath = [...statPath];
+      for (let k = 0; k < forcedIndices.length; k++)
+        newPath[forcedIndices[k]] = combo[k];
+      yield [newPath, Math.pow(0.5, forcedIndices.length)];
+    }
+  }
+
+  const rollup3 = {};
+  for (const statPath of statOutcomes) {
+    for (const [newPath, weight] of applyGuarantee(statPath)) {
+      const {perCollapsed, perRaw} = computeMarginals(newPath);
+      for (const [v, p] of Object.entries(extractFocusDist(perCollapsed, perRaw))) {
+        rollup3[v] = (rollup3[v] || 0) + pPerPath * weight * p;
+      }
+    }
+  }
+  formatPhase(`With ${gStats[0]}/${gStats[1]} \u2265 ${guaranteeCount} Guarantee`, rollup3);
+
+  return lines.join('\n');
+}
+
+// ─── UI State ─────────────────────────────────────────────────────────────────
+const statChecked   = {};   // stat -> bool
+const baseValues    = {};   // stat -> number (default 200)
+const weightValues  = {};   // stat -> number (default 1.0)
+const goodChecked   = {};   // stat -> bool (default true)
+const guarChecked   = {};   // stat -> bool (default false)
+
+for (const s of ALL_STATS) {
+  statChecked[s]  = false;
+  baseValues[s]   = 200;
+  weightValues[s] = 1.0;
+  goodChecked[s]  = true;
+  guarChecked[s]  = false;
+}
+
+function getSelected()   { return ALL_STATS.filter(s => statChecked[s]); }
+function getNumRolls()   { return parseInt(document.querySelector('input[name="num-rolls"]:checked').value); }
+function getGCount()     { return parseInt(document.querySelector('input[name="g-count"]:checked').value); }
+function getOutputMode() { return document.querySelector('input[name="output-mode"]:checked').value; }
+
+// ─── UI Rendering ─────────────────────────────────────────────────────────────
+
+function showAlert(msg) {
+  const el = document.getElementById('alert-box');
+  el.textContent = msg;
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 4000);
+}
+
+function buildStatGroups() {
+  const container = document.getElementById('stat-groups');
+  container.innerHTML = '';
+  for (const {name, stats} of GROUPS) {
+    const grp = document.createElement('div');
+    grp.className = 'stat-group';
+    const title = document.createElement('div');
+    title.className = 'stat-group-name';
+    title.textContent = name;
+    grp.appendChild(title);
+    for (const s of stats) {
+      const lbl = document.createElement('label');
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = statChecked[s];
+      cb.dataset.stat = s;
+      cb.id = `stat-cb-${s}`;
+      cb.addEventListener('change', e => {
+        statChecked[s] = e.target.checked;
+        onStatChange();
+      });
+      lbl.appendChild(cb);
+      const span = document.createElement('span');
+      span.textContent = s;
+      lbl.appendChild(span);
+      grp.appendChild(lbl);
+    }
+    container.appendChild(grp);
+  }
+}
+
+function updateStatCheckboxStates() {
+  const selected = getSelected();
+  const count = selected.length;
+  for (const s of ALL_STATS) {
+    const cb = document.getElementById(`stat-cb-${s}`);
+    if (!cb) continue;
+    cb.disabled = (!statChecked[s] && count >= 4);
+  }
+}
+
+function rebuildGoodStats() {
+  const container = document.getElementById('good-stats-row');
+  container.innerHTML = '';
+  const selected = getSelected();
+  if (!selected.length) {
+    container.innerHTML = '<span style="color:#aaa;font-size:12px">Select stats above</span>';
+    return;
+  }
+  for (const s of selected) {
+    if (!(s in goodChecked)) goodChecked[s] = true;
+    const lbl = document.createElement('label');
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = goodChecked[s];
+    cb.addEventListener('change', e => { goodChecked[s] = e.target.checked; });
+    lbl.appendChild(cb);
+    lbl.appendChild(document.createTextNode(' ' + s));
+    container.appendChild(lbl);
+  }
+}
+
+function rebuildGuaranteeStats() {
+  const container = document.getElementById('guarantee-stats-row');
+  container.innerHTML = '';
+  const selected = getSelected();
+  if (!selected.length) {
+    container.innerHTML = '<span style="color:#aaa;font-size:12px">Select stats above</span>';
+    return;
+  }
+  for (const s of selected) {
+    if (!(s in guarChecked)) guarChecked[s] = false;
+    const lbl = document.createElement('label');
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.id = `guar-cb-${s}`;
+    cb.checked = guarChecked[s];
+    cb.addEventListener('change', e => {
+      guarChecked[s] = e.target.checked;
+      updateGuaranteeStates();
+    });
+    lbl.appendChild(cb);
+    lbl.appendChild(document.createTextNode(' ' + s));
+    container.appendChild(lbl);
+  }
+  updateGuaranteeStates();
+}
+
+function updateGuaranteeStates() {
+  const selected = getSelected();
+  const checkedCount = selected.filter(s => guarChecked[s]).length;
+  for (const s of selected) {
+    const cb = document.getElementById(`guar-cb-${s}`);
+    if (!cb) continue;
+    cb.disabled = (!guarChecked[s] && checkedCount >= 2);
+  }
+}
+
+function updateBaseSum() {
+  const selected = getSelected();
+  const el = document.getElementById('base-sum');
+  if (!selected.length) { el.textContent = 'Sum: — / 900'; el.className = 'sum-label'; return; }
+  const total = selected.reduce((a, s) => a + (baseValues[s] || 0), 0);
+  el.textContent = `Sum: ${total} / 900`;
+  el.className = total > 900 ? 'sum-label over' : 'sum-label';
+}
+
+function rebuildBaseGrid() {
+  const container = document.getElementById('base-grid');
+  container.innerHTML = '';
+  const selected = getSelected();
+  if (!selected.length) {
+    container.innerHTML = '<span style="color:#aaa;font-size:12px">Select stats above</span>';
+    updateBaseSum();
+    return;
+  }
+  for (const s of selected) {
+    if (!(s in baseValues) || baseValues[s] === undefined) baseValues[s] = 200;
+    const item = document.createElement('div');
+    item.className = 'spin-item';
+    const lbl = document.createElement('label');
+    lbl.textContent = s + ':';
+    const inp = document.createElement('input');
+    inp.type = 'number';
+    inp.min = 70; inp.max = 500; inp.step = 1;
+    inp.value = baseValues[s];
+    inp.addEventListener('input', e => {
+      baseValues[s] = parseInt(e.target.value) || 0;
+      updateBaseSum();
+    });
+    item.appendChild(lbl);
+    item.appendChild(inp);
+    container.appendChild(item);
+  }
+  updateBaseSum();
+}
+
+function rebuildWeightGrid() {
+  const container = document.getElementById('weight-grid');
+  container.innerHTML = '';
+  const selected = getSelected();
+  if (!selected.length) {
+    container.innerHTML = '<span style="color:#aaa;font-size:12px">Select stats above</span>';
+    return;
+  }
+  for (const s of selected) {
+    if (!(s in weightValues)) weightValues[s] = 1.0;
+    const item = document.createElement('div');
+    item.className = 'spin-item';
+    const lbl = document.createElement('label');
+    lbl.textContent = s + ':';
+    const inp = document.createElement('input');
+    inp.type = 'number';
+    inp.min = 0; inp.max = 10; inp.step = 0.1;
+    inp.value = weightValues[s].toFixed(1);
+    inp.addEventListener('input', e => {
+      weightValues[s] = parseFloat(e.target.value) || 0;
+    });
+    item.appendChild(lbl);
+    item.appendChild(inp);
+    container.appendChild(item);
+  }
+}
+
+function rebuildFocusList() {
+  const select = document.getElementById('focus-list');
+  const prevVal = select.value;
+  select.innerHTML = '';
+  const selected = getSelected();
+  if (!selected.length) {
+    const opt = document.createElement('option');
+    opt.disabled = true;
+    opt.textContent = 'Select stats above';
+    select.appendChild(opt);
+    return;
+  }
+  // Raw stats
+  for (const s of selected) {
+    const opt = document.createElement('option');
+    opt.value = s;
+    opt.textContent = s;
+    select.appendChild(opt);
+  }
+  // Collapsed labels (only if ≥2 members)
+  const seen = new Set();
+  for (const s of selected) {
+    if (!(s in COLLAPSE)) continue;
+    const lbl = collapsedName(s);
+    if (seen.has(lbl)) continue;
+    seen.add(lbl);
+    const members = selected.filter(x => collapsedName(x) === lbl);
+    if (members.length >= 2) {
+      const opt = document.createElement('option');
+      opt.value = lbl;
+      opt.textContent = `${lbl} (${members.join('+')})`;
+      select.appendChild(opt);
+    }
+  }
+  // Restore previous selection if still present, else default to first
+  const exists = [...select.options].some(o => o.value === prevVal);
+  select.value = exists ? prevVal : (select.options[0]?.value || '');
+}
+
+function onStatChange() {
+  updateStatCheckboxStates();
+  rebuildGoodStats();
+  rebuildGuaranteeStats();
+  rebuildBaseGrid();
+  rebuildWeightGrid();
+  rebuildFocusList();
+}
+
+// ─── Run Analysis ─────────────────────────────────────────────────────────────
+
+document.getElementById('btn-run').addEventListener('click', () => {
+  const selected = getSelected();
+  if (selected.length !== 4) { showAlert('Please select exactly 4 stats.'); return; }
+
+  const mode = getOutputMode();
+  let focus = null;
+  if (mode === 'single') {
+    const sel = document.getElementById('focus-list');
+    focus = sel.value;
+    // strip display suffix like "C (CR+CD)" → "C"
+    if (focus) focus = focus.split(' ')[0];
+    if (!focus) { showAlert('Please select a focus stat.'); return; }
+  }
+
+  const bases = {};
+  for (const s of selected) {
+    const v = baseValues[s];
+    if (!Number.isInteger(v) || v < 70 || v > 500) {
+      showAlert(`Base value for ${s} must be a whole number between 70 and 500.`);
+      return;
+    }
+    bases[s] = v;
+  }
+  const total = selected.reduce((a, s) => a + bases[s], 0);
+  if (total > 900) { showAlert(`Sum of base values is ${total}%, which exceeds 900%.`); return; }
+
+  const weights = {};
+  for (const s of selected) {
+    const w = weightValues[s];
+    if (isNaN(w) || w < 0) { showAlert(`Weight for ${s} must be a non-negative number.`); return; }
+    weights[s] = w;
+  }
+
+  const numRolls     = getNumRolls();
+  const gCount       = getGCount();
+  const gStats       = selected.filter(s => guarChecked[s]);
+  const goodStatsSet = new Set(selected.filter(s => goodChecked[s]));
+
+  const result = runAnalysis(selected, numRolls, gStats, gCount, bases, mode, focus, goodStatsSet, weights);
+  document.getElementById('output').value = result;
+});
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+buildStatGroups();
+</script>
+</body>
+</html>

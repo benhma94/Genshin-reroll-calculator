@@ -35,6 +35,6 @@ python reshaping_odds.py
 1. **Select stats** — check the stats present on your artifact
 2. **Set roll count** — choose 4 or 5 rolls
 3. **Set guarantee** — if applicable, set the guaranteed count for a stat group
-4. **Enter base values** — input your current stat values (as percentages, e.g. 152 for 152%)
+4. **Enter base values** — input your current RV (as percentages, e.g. 150 for 150%)
 5. **Choose mode** — combined or single-stat
 6. **Click Analyze** — results appear in the output panel

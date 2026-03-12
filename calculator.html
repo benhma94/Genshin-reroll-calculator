@@ -201,14 +201,6 @@
       </div>
     </div>
 
-    <!-- Good stats -->
-    <div class="card">
-      <div class="card-title">Good Stats (uncheck = bad/ignored)</div>
-      <div class="check-row" id="good-stats-row">
-        <span style="color:#aaa;font-size:12px">Select stats above</span>
-      </div>
-    </div>
-
     <!-- Guarantee stats -->
     <div class="card">
       <div class="card-title">Guarantee Stats (optional, pick 2)</div>
@@ -317,8 +309,7 @@ function fmt(v) {
  * Returns a string of text output.
  */
 function runAnalysis(selectedStats, numRolls, guaranteeStats, guaranteeCount,
-                     bases, mode, focus, goodStats, weights) {
-  if (!goodStats) goodStats = new Set(selectedStats);
+                     bases, mode, focus, weights) {
   if (!weights)  weights = Object.fromEntries(selectedStats.map(s => [s, 1.0]));
 
   const effBases = {};
@@ -339,9 +330,6 @@ function runAnalysis(selectedStats, numRolls, guaranteeStats, guaranteeCount,
   const rollsStr = Array(numRolls).fill(n).join('x');
   out(`Selected: ${selectedStats.join(', ')}   Rolls: ${numRolls}   Paths: ${rollsStr} = ${nStat}`);
   out(`Base: ${selectedStats.map(s => `${s}=${bases[s]}`).join(', ')}  →  Total: ${selectedStats.reduce((a,s) => a + bases[s], 0)}%`);
-  const badStats = selectedStats.filter(s => !goodStats.has(s));
-  if (badStats.length)
-    out(`Good: ${selectedStats.filter(s => goodStats.has(s)).join(', ')}   Bad (ignored): ${badStats.join(', ')}`);
   const nonDefaultWeights = Object.entries(weights).filter(([,w]) => w !== 1.0);
   if (nonDefaultWeights.length)
     out(`Weights: ${selectedStats.map(s => `${s}=${weights[s].toFixed(1)}`).join(', ')}`);
@@ -353,15 +341,15 @@ function runAnalysis(selectedStats, numRolls, guaranteeStats, guaranteeCount,
 
   let focusBaseDisplay, focusLabel;
   if (mode === 'combined') {
-    focusBaseDisplay = selectedStats.filter(s => goodStats.has(s)).reduce((a,s) => a + effBases[s], 0);
+    focusBaseDisplay = selectedStats.reduce((a,s) => a + effBases[s], 0);
     focusLabel = nonDefaultWeights.length ? 'All stats (weighted)' : 'All stats';
   } else if (focusIsRaw) {
-    focusBaseDisplay = goodStats.has(focus) ? bases[focus] : 0;
+    focusBaseDisplay = bases[focus];
     focusLabel = focus;
   } else {
     // collapsed label
     const members = selectedStats.filter(s => collapsedName(s) === focus);
-    focusBaseDisplay = members.filter(s => goodStats.has(s)).reduce((a,s) => a + bases[s], 0);
+    focusBaseDisplay = members.reduce((a,s) => a + bases[s], 0);
     focusLabel = members.length > 1 ? `${focus} (${members.join(' + ')})` : focus;
   }
 
@@ -374,7 +362,7 @@ function runAnalysis(selectedStats, numRolls, guaranteeStats, guaranteeCount,
     for (const lbl of collapsedLabels) {
       let dist = {0: 1.0};
       for (const s of statPath) {
-        if (collapsedName(s) === lbl && goodStats.has(s)) {
+        if (collapsedName(s) === lbl) {
           const newDist = {};
           for (const [v, p] of Object.entries(dist)) {
             for (const m of MULTIPLIERS) {
@@ -392,7 +380,7 @@ function runAnalysis(selectedStats, numRolls, guaranteeStats, guaranteeCount,
     if (focusNeedsRawDist) {
       let dist = {0: 1.0};
       for (const s of statPath) {
-        if (s === focus && goodStats.has(s)) {
+        if (s === focus) {
           const newDist = {};
           for (const [v, p] of Object.entries(dist)) {
             for (const m of MULTIPLIERS) {
@@ -490,14 +478,12 @@ function runAnalysis(selectedStats, numRolls, guaranteeStats, guaranteeCount,
 const statChecked   = {};   // stat -> bool
 const baseValues    = {};   // stat -> number (default 200)
 const weightValues  = {};   // stat -> number (default 1.0)
-const goodChecked   = {};   // stat -> bool (default true)
 const guarChecked   = {};   // stat -> bool (default false)
 
 for (const s of ALL_STATS) {
   statChecked[s]  = false;
   baseValues[s]   = 200;
   weightValues[s] = 1.0;
-  goodChecked[s]  = true;
   guarChecked[s]  = false;
 }
 
@@ -553,27 +539,6 @@ function updateStatCheckboxStates() {
     const cb = document.getElementById(`stat-cb-${s}`);
     if (!cb) continue;
     cb.disabled = (!statChecked[s] && count >= 4);
-  }
-}
-
-function rebuildGoodStats() {
-  const container = document.getElementById('good-stats-row');
-  container.innerHTML = '';
-  const selected = getSelected();
-  if (!selected.length) {
-    container.innerHTML = '<span style="color:#aaa;font-size:12px">Select stats above</span>';
-    return;
-  }
-  for (const s of selected) {
-    if (!(s in goodChecked)) goodChecked[s] = true;
-    const lbl = document.createElement('label');
-    const cb = document.createElement('input');
-    cb.type = 'checkbox';
-    cb.checked = goodChecked[s];
-    cb.addEventListener('change', e => { goodChecked[s] = e.target.checked; });
-    lbl.appendChild(cb);
-    lbl.appendChild(document.createTextNode(' ' + s));
-    container.appendChild(lbl);
   }
 }
 
@@ -720,7 +685,6 @@ function rebuildFocusList() {
 
 function onStatChange() {
   updateStatCheckboxStates();
-  rebuildGoodStats();
   rebuildGuaranteeStats();
   rebuildBaseGrid();
   rebuildWeightGrid();
@@ -764,10 +728,9 @@ document.getElementById('btn-run').addEventListener('click', () => {
 
   const numRolls     = getNumRolls();
   const gCount       = getGCount();
-  const gStats       = selected.filter(s => guarChecked[s]);
-  const goodStatsSet = new Set(selected.filter(s => goodChecked[s]));
+  const gStats = selected.filter(s => guarChecked[s]);
 
-  const result = runAnalysis(selected, numRolls, gStats, gCount, bases, mode, focus, goodStatsSet, weights);
+  const result = runAnalysis(selected, numRolls, gStats, gCount, bases, mode, focus, weights);
   document.getElementById('output').value = result;
 });
 

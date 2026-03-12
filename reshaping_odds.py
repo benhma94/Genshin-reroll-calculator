@@ -42,18 +42,14 @@ def prob_summary(dist, base_internal):
 
 
 def run_analysis(selected_stats, num_rolls, guarantee_stats, guarantee_count, bases,
-                 mode='combined', focus=None, good_stats=None, weights=None):
+                 mode='combined', focus=None, weights=None):
     """
     mode: 'combined' → compare grand total vs sum of all bases
           'single'   → compare one stat/label vs its base
     focus: for 'single' mode — a raw stat (e.g. 'CR') or collapsed label (e.g. 'C')
-    good_stats: set of raw stat names whose rolled values count; bad stats contribute 0.
-                Defaults to all selected_stats (all good).
     weights: dict of stat → float multiplier for combined mode scoring. Defaults to all 1.0.
              Ignored in single stat mode.
     """
-    if good_stats is None:
-        good_stats = set(selected_stats)
     if weights is None:
         weights = {s: 1.0 for s in selected_stats}
 
@@ -77,10 +73,6 @@ def run_analysis(selected_stats, num_rolls, guarantee_stats, guarantee_count, ba
     rolls_str = 'x'.join([str(n)] * num_rolls)
     out(f"Selected: {', '.join(selected_stats)}   Rolls: {num_rolls}   Paths: {rolls_str} = {n_stat}")
     out(f"Base: {', '.join(f'{s}={bases[s]}' for s in selected_stats)}  →  Total: {sum(bases.values())}%")
-    bad_stats = [s for s in selected_stats if s not in good_stats]
-    if bad_stats:
-        out(f"Good: {', '.join(s for s in selected_stats if s in good_stats)}   "
-            f"Bad (ignored): {', '.join(bad_stats)}")
     non_default_weights = {s: w for s, w in weights.items() if w != 1.0}
     if non_default_weights:
         out(f"Weights: {', '.join(f'{s}={w:.1f}' for s, w in weights.items())}")
@@ -94,14 +86,14 @@ def run_analysis(selected_stats, num_rolls, guarantee_stats, guarantee_count, ba
         return str(int(v)) if v == int(v) else f"{v:.1f}"
 
     if mode == 'combined':
-        focus_base_display = sum(eff_bases[s] for s in selected_stats if s in good_stats)
+        focus_base_display = sum(eff_bases[s] for s in selected_stats)
         focus_label = "All stats (weighted)" if non_default_weights else "All stats"
     elif focus_is_raw:
-        focus_base_display = bases[focus] if focus in good_stats else 0
+        focus_base_display = bases[focus]
         focus_label = focus
     else:  # collapsed label
         members = [s for s in selected_stats if collapsed_name(s) == focus]
-        focus_base_display = sum(bases[s] for s in members if s in good_stats)
+        focus_base_display = sum(bases[s] for s in members)
         focus_label = f"{focus} ({' + '.join(members)})" if len(members) > 1 else focus
 
     focus_base_internal = focus_base_display * 10  # internal = display * 10
@@ -116,7 +108,7 @@ def run_analysis(selected_stats, num_rolls, guarantee_stats, guarantee_count, ba
         for lbl in collapsed_labels:
             dist = {0: 1.0}
             for s in stat_path:
-                if collapsed_name(s) == lbl and s in good_stats:
+                if collapsed_name(s) == lbl:
                     new_dist = defaultdict(float)
                     for v, p in dist.items():
                         for m in MULTIPLIERS:
@@ -128,7 +120,7 @@ def run_analysis(selected_stats, num_rolls, guarantee_stats, guarantee_count, ba
         if focus_needs_raw_dist:
             dist = {0: 1.0}
             for s in stat_path:
-                if s == focus and s in good_stats:
+                if s == focus:
                     new_dist = defaultdict(float)
                     for v, p in dist.items():
                         for m in MULTIPLIERS:
@@ -255,31 +247,6 @@ def main():
     guarantee_count_var = tk.IntVar(value=2)
     for val in (2, 3, 4):
         tk.Radiobutton(frame_guarantee_count, text=str(val), variable=guarantee_count_var, value=val).pack(side='left', padx=4)
-
-    # Good stats selector (all checked by default)
-    frame_good = tk.LabelFrame(frame_right, text="Good Stats (uncheck = bad/ignored)", padx=8, pady=5)
-    frame_good.pack(pady=(0, 8), fill='x')
-
-    good_stat_vars = {}
-    good_stat_widgets = {}
-
-    def rebuild_good_stat_checkboxes():
-        selected = [s for s in ALL_STATS if checkbox_vars[s].get()]
-
-        for w in list(good_stat_widgets.values()):
-            w.destroy()
-        good_stat_widgets.clear()
-
-        for lbl in list(good_stat_vars.keys()):
-            if lbl not in selected:
-                del good_stat_vars[lbl]
-
-        for lbl in selected:
-            if lbl not in good_stat_vars:
-                good_stat_vars[lbl] = tk.BooleanVar(value=True)  # default: good
-            cb = tk.Checkbutton(frame_good, text=lbl, variable=good_stat_vars[lbl])
-            cb.pack(anchor='w')
-            good_stat_widgets[lbl] = cb
 
     # Guarantee stat selector (optional)
     frame_guarantee = tk.LabelFrame(frame_right, text="Guarantee Stats (optional, pick 2)", padx=8, pady=5)
@@ -459,7 +426,6 @@ def main():
         for s, v in checkbox_vars.items():
             state = 'normal' if (v.get() or selected_count < 4) else 'disabled'
             cb_widgets[s].config(state=state)
-        rebuild_good_stat_checkboxes()
         rebuild_guarantee_checkboxes()
         rebuild_base_spinboxes()
         rebuild_weight_spinboxes()
@@ -517,9 +483,8 @@ def main():
 
         num_rolls = num_rolls_var.get()
         guarantee_count = guarantee_count_var.get()
-        good_stats = {s for s in selected if good_stat_vars.get(s) and good_stat_vars[s].get()}
         result = run_analysis(selected, num_rolls, g_stats, guarantee_count, bases, mode, focus,
-                              good_stats, weights)
+                              weights)
         output_text.config(state='normal')
         output_text.delete('1.0', tk.END)
         output_text.insert('1.0', result)

@@ -42,7 +42,7 @@ def prob_summary(dist, base_internal):
 
 
 def run_analysis(selected_stats, num_rolls, guarantee_stats, guarantee_count, bases,
-                 mode='combined', focus=None, weights=None):
+                 mode='combined', focus=None, weights=None, focus_stats=None):
     """
     mode: 'combined' → compare grand total vs sum of all bases
           'single'   → compare one stat/label vs its base
@@ -77,6 +77,68 @@ def run_analysis(selected_stats, num_rolls, guarantee_stats, guarantee_count, ba
     if non_default_weights:
         out(f"Weights: {', '.join(f'{s}={w:.1f}' for s, w in weights.items())}")
     out("Each roll tier: 70% / 80% / 90% / 100%  (equal probability)")
+
+    # --- Roll Count mode (early return) ---
+    if mode == 'rollcount':
+        fs = set(focus_stats) if focus_stats else set()
+        focus_label = ' + '.join(sorted(fs)) if fs else '(none)'
+        out(f"\nFocus: {focus_label}  |  Roll count distribution (out of {num_rolls} random rolls)")
+
+        def _count_dist(pairs):
+            d = {}
+            for seq, w in pairs:
+                cnt = sum(1 for s in seq if s in fs)
+                d[cnt] = d.get(cnt, 0) + w
+            return d
+
+        def _fmt_count_phase(label, d):
+            out(f"\n=== {label} ===")
+            out(f"  {'Rolls':>5}  {'P(exactly)':>10}  {'P(>=rolls)':>10}  {'P(<=rolls)':>10}")
+            out(f"  {'─────':>5}  {'──────────':>10}  {'──────────':>10}  {'──────────':>10}")
+            ge = sum(d.get(k, 0) for k in range(num_rolls + 1))
+            le = 0.0
+            for cnt in range(num_rolls + 1):
+                p = d.get(cnt, 0)
+                le += p
+                out(f"  {cnt:>5}  {p*100:>9.2f}%  {ge*100:>9.2f}%  {le*100:>9.2f}%")
+                ge -= p
+
+        _fmt_count_phase("No Guarantee", _count_dist(
+            [(sp, p_per_stat_path) for sp in stat_outcomes]))
+
+        valid_g = [g for g in guarantee_stats if g in selected_stats]
+        if len(valid_g) >= 2:
+            valid_g = valid_g[:2]
+            g_pool = set(collapsed_name(g) for g in valid_g)
+
+            def _apply_guar(stat_path):
+                col = [collapsed_name(s) for s in stat_path]
+                gc = sum(1 for c in col if c in g_pool)
+                forced = []
+                for i in range(len(col) - 1, -1, -1):
+                    if gc >= guarantee_count:
+                        break
+                    if col[i] not in g_pool:
+                        forced.append(i)
+                        gc += 1
+                if not forced:
+                    yield stat_path, 1.0
+                    return
+                for combo in itertools.product(valid_g, repeat=len(forced)):
+                    np_ = list(stat_path)
+                    for idx, fs_ in zip(forced, combo):
+                        np_[idx] = fs_
+                    yield tuple(np_), 0.5 ** len(forced)
+
+            pairs3 = []
+            for sp in stat_outcomes:
+                for nsp, w in _apply_guar(sp):
+                    pairs3.append((nsp, p_per_stat_path * w))
+            g_label = f"{valid_g[0]}/{valid_g[1]}"
+            _fmt_count_phase(f"With {g_label} \u2265 {guarantee_count} Guarantee",
+                             _count_dist(pairs3))
+
+        return '\n'.join(lines)
 
     # Determine what distribution to extract and what base to compare against
     focus_is_raw = (mode == 'single' and focus in selected_stats)
@@ -411,6 +473,26 @@ def main():
     focus_listbox = tk.Listbox(frame_focus_outer, height=5, exportselection=False, width=18)
     focus_listbox.pack(side='left', fill='x')
 
+    # Roll Count mode: per-stat checkboxes
+    frame_rollcount = tk.LabelFrame(frame_mode_focus, text="Count Rolls Into (Roll Count mode)", padx=8, pady=5)
+    rollcount_vars = {}
+    rollcount_widgets = {}
+
+    def rebuild_rollcount_checkboxes():
+        selected = [s for s in ALL_STATS if checkbox_vars[s].get()]
+        for w in list(rollcount_widgets.values()):
+            w.destroy()
+        rollcount_widgets.clear()
+        for lbl in list(rollcount_vars.keys()):
+            if lbl not in selected:
+                del rollcount_vars[lbl]
+        for s in selected:
+            if s not in rollcount_vars:
+                rollcount_vars[s] = tk.BooleanVar(value=False)
+            cb = tk.Checkbutton(frame_rollcount, text=s, variable=rollcount_vars[s])
+            cb.pack(anchor='w')
+            rollcount_widgets[s] = cb
+
     def rebuild_focus_options():
         focus_listbox.delete(0, tk.END)
         selected = [s for s in ALL_STATS if checkbox_vars[s].get()]
@@ -428,12 +510,20 @@ def main():
             focus_listbox.selection_set(0)
 
     def update_focus_state(*_):
-        pass  # listbox is always interactive; focus stat is ignored in combined mode
+        mode = output_mode_var.get()
+        if mode == 'rollcount':
+            frame_focus_outer.pack_forget()
+            frame_rollcount.pack(side='left', fill='x', expand=True)
+        else:
+            frame_rollcount.pack_forget()
+            frame_focus_outer.pack(side='left', fill='x', expand=True)
 
     tk.Radiobutton(frame_mode, text="Combined", variable=output_mode_var,
                    value='combined', command=update_focus_state).pack(anchor='w')
     tk.Radiobutton(frame_mode, text="Single Stat", variable=output_mode_var,
                    value='single', command=update_focus_state).pack(anchor='w')
+    tk.Radiobutton(frame_mode, text="Roll Count", variable=output_mode_var,
+                   value='rollcount', command=update_focus_state).pack(anchor='w')
 
     update_focus_state()
 
@@ -446,6 +536,7 @@ def main():
         rebuild_base_spinboxes()
         rebuild_weight_spinboxes()
         rebuild_focus_options()
+        rebuild_rollcount_checkboxes()
 
     for var in checkbox_vars.values():
         var.trace_add('write', on_stat_change)
@@ -459,12 +550,18 @@ def main():
 
         mode = output_mode_var.get()
         focus = None
+        focus_stats = None
         if mode == 'single':
             sel_idx = focus_listbox.curselection()
             if not sel_idx:
                 messagebox.showwarning("Focus", "Please select a focus stat.")
                 return
             focus = focus_listbox.get(sel_idx[0]).split()[0]  # "C (CR+CD)" → "C"
+        elif mode == 'rollcount':
+            focus_stats = set(s for s, v in rollcount_vars.items() if v.get())
+            if not focus_stats:
+                messagebox.showwarning("Roll Count", "Please select at least one stat to count.")
+                return
 
         g_stats = [lbl for lbl, v in guarantee_vars.items() if v.get()]
 
@@ -500,7 +597,7 @@ def main():
         num_rolls = num_rolls_var.get()
         guarantee_count = guarantee_count_var.get()
         result = run_analysis(selected, num_rolls, g_stats, guarantee_count, bases, mode, focus,
-                              weights)
+                              weights, focus_stats)
         output_text.config(state='normal')
         output_text.delete('1.0', tk.END)
         output_text.insert('1.0', result)

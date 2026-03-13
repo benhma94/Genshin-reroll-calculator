@@ -235,6 +235,7 @@
     <div style="display:flex;flex-direction:column;gap:6px">
       <label><input type="radio" name="output-mode" value="combined" checked> Combined</label>
       <label><input type="radio" name="output-mode" value="single"> Single Stat</label>
+      <label><input type="radio" name="output-mode" value="rollcount"> Roll Count</label>
     </div>
   </div>
   <div class="card" id="card-focus">
@@ -242,6 +243,12 @@
     <select id="focus-list" size="5">
       <option disabled>Select stats above</option>
     </select>
+  </div>
+  <div class="card" id="card-rollcount" style="display:none">
+    <div class="card-title">Count Rolls Into (Roll Count mode)</div>
+    <div class="check-row" id="rollcount-stats-row">
+      <span style="color:#aaa;font-size:12px">Select stats above</span>
+    </div>
   </div>
 </div>
 
@@ -304,12 +311,38 @@ function fmt(v) {
   return Number.isInteger(v) ? String(v) : v.toFixed(1);
 }
 
+/** Count how many slots in each path belong to focusStats (a Set), return {count: prob} */
+function countDistribution(statOutcomes, pPerPath, focusStats) {
+  const dist = {};
+  for (const path of statOutcomes) {
+    const cnt = path.filter(s => focusStats.has(s)).length;
+    dist[cnt] = (dist[cnt] || 0) + pPerPath;
+  }
+  return dist;
+}
+
+function formatCountTable(dist, numRolls) {
+  const lines = [];
+  lines.push(`  ${'Rolls'.padStart(5)}  ${'P(exactly)'.padStart(10)}  ${'P(>=rolls)'.padStart(10)}  ${'P(<=rolls)'.padStart(10)}`);
+  lines.push(`  ${'─────'.padStart(5)}  ${'──────────'.padStart(10)}  ${'──────────'.padStart(10)}  ${'──────────'.padStart(10)}`);
+  let ge = 0;
+  for (let k = 0; k <= numRolls; k++) ge += (dist[k] || 0);
+  let le = 0;
+  for (let cnt = 0; cnt <= numRolls; cnt++) {
+    const p = dist[cnt] || 0;
+    le += p;
+    lines.push(`  ${String(cnt).padStart(5)}  ${(p * 100).toFixed(2).padStart(9)}%  ${(ge * 100).toFixed(2).padStart(9)}%  ${(le * 100).toFixed(2).padStart(9)}%`);
+    ge -= p;
+  }
+  return lines.join('\n');
+}
+
 /**
  * Main analysis function — direct port of Python run_analysis().
  * Returns a string of text output.
  */
 function runAnalysis(selectedStats, numRolls, guaranteeStats, guaranteeCount,
-                     bases, mode, focus, weights) {
+                     bases, mode, focus, weights, focusStats) {
   if (!weights)  weights = Object.fromEntries(selectedStats.map(s => [s, 1.0]));
 
   const effBases = {};
@@ -334,6 +367,61 @@ function runAnalysis(selectedStats, numRolls, guaranteeStats, guaranteeCount,
   if (nonDefaultWeights.length)
     out(`Weights: ${selectedStats.map(s => `${s}=${weights[s].toFixed(1)}`).join(', ')}`);
   out('Each roll tier: 70% / 80% / 90% / 100%  (equal probability)');
+
+  // --- Roll Count mode (early return) ---
+  if (mode === 'rollcount') {
+    const fs = focusStats instanceof Set ? focusStats : new Set(focusStats || []);
+    const focusLabel = [...fs].sort().join(' + ') || '(none)';
+    out(`\nFocus: ${focusLabel}  |  Roll count distribution (out of ${numRolls} random rolls)`);
+
+    function _countDist(pairs) {
+      const d = {};
+      for (const [seq, w] of pairs) {
+        const cnt = seq.filter(s => fs.has(s)).length;
+        d[cnt] = (d[cnt] || 0) + w;
+      }
+      return d;
+    }
+
+    function _fmtCountPhase(label, d) {
+      out(`\n=== ${label} ===`);
+      out(formatCountTable(d, numRolls));
+    }
+
+    // Phase 2: No guarantee
+    const pairs2 = statOutcomes.map(sp => [sp, pPerPath]);
+    _fmtCountPhase('No Guarantee', _countDist(pairs2));
+
+    // Phase 3: With guarantee
+    if (guaranteeStats.length >= 2) {
+      const validG = guaranteeStats.filter(g => selectedStats.includes(g)).slice(0, 2);
+      if (validG.length >= 2) {
+        const gPool = new Set(validG.map(collapsedName));
+        function* _applyGuar(statPath) {
+          const col = statPath.map(collapsedName);
+          let gc = col.filter(c => gPool.has(c)).length;
+          const forced = [];
+          for (let i = col.length - 1; i >= 0; i--) {
+            if (gc >= guaranteeCount) break;
+            if (!gPool.has(col[i])) { forced.push(i); gc++; }
+          }
+          if (!forced.length) { yield [statPath, 1.0]; return; }
+          for (const combo of cartesianProduct(validG, forced.length)) {
+            const np = [...statPath];
+            for (let k = 0; k < forced.length; k++) np[forced[k]] = combo[k];
+            yield [np, Math.pow(0.5, forced.length)];
+          }
+        }
+        const pairs3 = [];
+        for (const sp of statOutcomes)
+          for (const [nsp, w] of _applyGuar(sp))
+            pairs3.push([nsp, pPerPath * w]);
+        _fmtCountPhase(`With ${validG[0]}/${validG[1]} \u2265 ${guaranteeCount} Guarantee`,
+                       _countDist(pairs3));
+      }
+    }
+    return lines.join('\n');
+  }
 
   // Determine focus details
   const focusIsRaw = (mode === 'single' && selectedStats.includes(focus));
@@ -501,16 +589,18 @@ function runAnalysis(selectedStats, numRolls, guaranteeStats, guaranteeCount,
 }
 
 // ─── UI State ─────────────────────────────────────────────────────────────────
-const statChecked   = {};   // stat -> bool
-const baseValues    = {};   // stat -> number (default 200)
-const weightValues  = {};   // stat -> number (default 1.0)
-const guarChecked   = {};   // stat -> bool (default false)
+const statChecked      = {};   // stat -> bool
+const baseValues       = {};   // stat -> number (default 200)
+const weightValues     = {};   // stat -> number (default 1.0)
+const guarChecked      = {};   // stat -> bool (default false)
+const rollCountChecked = {};   // stat -> bool (default false)
 
 for (const s of ALL_STATS) {
-  statChecked[s]  = false;
-  baseValues[s]   = 200;
-  weightValues[s] = 1.0;
-  guarChecked[s]  = false;
+  statChecked[s]      = false;
+  baseValues[s]       = 200;
+  weightValues[s]     = 1.0;
+  guarChecked[s]      = false;
+  rollCountChecked[s] = false;
 }
 
 function getSelected()   { return ALL_STATS.filter(s => statChecked[s]); }
@@ -709,12 +799,41 @@ function rebuildFocusList() {
   select.value = exists ? prevVal : (select.options[0]?.value || '');
 }
 
+function rebuildRollCountStats() {
+  const container = document.getElementById('rollcount-stats-row');
+  container.innerHTML = '';
+  const selected = getSelected();
+  if (!selected.length) {
+    container.innerHTML = '<span style="color:#aaa;font-size:12px">Select stats above</span>';
+    return;
+  }
+  for (const s of selected) {
+    if (!(s in rollCountChecked)) rollCountChecked[s] = false;
+    const lbl = document.createElement('label');
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.id = `rc-cb-${s}`;
+    cb.checked = rollCountChecked[s];
+    cb.addEventListener('change', e => { rollCountChecked[s] = e.target.checked; });
+    lbl.appendChild(cb);
+    lbl.appendChild(document.createTextNode(' ' + s));
+    container.appendChild(lbl);
+  }
+}
+
+function onOutputModeChange() {
+  const mode = getOutputMode();
+  document.getElementById('card-focus').style.display     = (mode === 'single')    ? '' : 'none';
+  document.getElementById('card-rollcount').style.display = (mode === 'rollcount') ? '' : 'none';
+}
+
 function onStatChange() {
   updateStatCheckboxStates();
   rebuildGuaranteeStats();
   rebuildBaseGrid();
   rebuildWeightGrid();
   rebuildFocusList();
+  rebuildRollCountStats();
 }
 
 // ─── Run Analysis ─────────────────────────────────────────────────────────────
@@ -725,12 +844,16 @@ document.getElementById('btn-run').addEventListener('click', () => {
 
   const mode = getOutputMode();
   let focus = null;
+  let focusStats = null;
   if (mode === 'single') {
     const sel = document.getElementById('focus-list');
     focus = sel.value;
     // strip display suffix like "C (CR+CD)" → "C"
     if (focus) focus = focus.split(' ')[0];
     if (!focus) { showAlert('Please select a focus stat.'); return; }
+  } else if (mode === 'rollcount') {
+    focusStats = new Set(selected.filter(s => rollCountChecked[s]));
+    if (!focusStats.size) { showAlert('Please select at least one stat to count.'); return; }
   }
 
   const bases = {};
@@ -756,11 +879,15 @@ document.getElementById('btn-run').addEventListener('click', () => {
   const gCount       = getGCount();
   const gStats = selected.filter(s => guarChecked[s]);
 
-  const result = runAnalysis(selected, numRolls, gStats, gCount, bases, mode, focus, weights);
+  const result = runAnalysis(selected, numRolls, gStats, gCount, bases, mode, focus, weights, focusStats);
   document.getElementById('output').value = result;
 });
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
+document.querySelectorAll('input[name="output-mode"]').forEach(
+  r => r.addEventListener('change', onOutputModeChange)
+);
+onOutputModeChange();
 buildStatGroups();
 </script>
 </body>

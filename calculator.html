@@ -328,7 +328,7 @@ function runAnalysis(selectedStats, numRolls, guaranteeStats, guaranteeCount,
 
   // Header
   const rollsStr = Array(numRolls).fill(n).join('x');
-  out(`Selected: ${selectedStats.join(', ')}   Rolls: ${numRolls}   Paths: ${rollsStr} = ${nStat}`);
+  out(`Selected: ${selectedStats.join(', ')}   Rolls: ${n} base + ${numRolls} random   Paths: ${rollsStr} = ${nStat}`);
   out(`Base: ${selectedStats.map(s => `${s}=${bases[s]}`).join(', ')}  →  Total: ${selectedStats.reduce((a,s) => a + bases[s], 0)}%`);
   const nonDefaultWeights = Object.entries(weights).filter(([,w]) => w !== 1.0);
   if (nonDefaultWeights.length)
@@ -360,7 +360,21 @@ function runAnalysis(selectedStats, numRolls, guaranteeStats, guaranteeCount,
   function computeMarginals(statPath) {
     const perCollapsed = {};
     for (const lbl of collapsedLabels) {
+      // 1 guaranteed base roll per selected stat for this label
       let dist = {0: 1.0};
+      for (const s of selectedStats) {
+        if (collapsedName(s) === lbl) {
+          const newDist = {};
+          for (const [v, p] of Object.entries(dist)) {
+            for (const m of MULTIPLIERS) {
+              const key = Number(v) + effBases[s] * m;
+              newDist[key] = (newDist[key] || 0) + p * 0.25;
+            }
+          }
+          dist = newDist;
+        }
+      }
+      // Then add the randomly distributed rolls from statPath
       for (const s of statPath) {
         if (collapsedName(s) === lbl) {
           const newDist = {};
@@ -378,7 +392,19 @@ function runAnalysis(selectedStats, numRolls, guaranteeStats, guaranteeCount,
 
     const perRaw = {};
     if (focusNeedsRawDist) {
+      // 1 guaranteed base roll for focus stat
       let dist = {0: 1.0};
+      {
+        const newDist = {};
+        for (const [v, p] of Object.entries(dist)) {
+          for (const m of MULTIPLIERS) {
+            const key = Number(v) + effBases[focus] * m;
+            newDist[key] = (newDist[key] || 0) + p * 0.25;
+          }
+        }
+        dist = newDist;
+      }
+      // Then add randomly distributed rolls from statPath
       for (const s of statPath) {
         if (s === focus) {
           const newDist = {};

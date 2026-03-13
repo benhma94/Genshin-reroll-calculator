@@ -71,7 +71,7 @@ def run_analysis(selected_stats, num_rolls, guarantee_stats, guarantee_count, ba
 
     # Header
     rolls_str = 'x'.join([str(n)] * num_rolls)
-    out(f"Selected: {', '.join(selected_stats)}   Rolls: {num_rolls}   Paths: {rolls_str} = {n_stat}")
+    out(f"Selected: {', '.join(selected_stats)}   Rolls: {n} base + {num_rolls} random   Paths: {rolls_str} = {n_stat}")
     out(f"Base: {', '.join(f'{s}={bases[s]}' for s in selected_stats)}  →  Total: {sum(bases.values())}%")
     non_default_weights = {s: w for s, w in weights.items() if w != 1.0}
     if non_default_weights:
@@ -106,7 +106,16 @@ def run_analysis(selected_stats, num_rolls, guarantee_stats, guarantee_count, ba
         """Returns (per_collapsed, per_raw) distribution dicts."""
         per_collapsed = {}
         for lbl in collapsed_labels:
+            # 1 guaranteed base roll per selected stat for this label
             dist = {0: 1.0}
+            for s in selected_stats:
+                if collapsed_name(s) == lbl:
+                    new_dist = defaultdict(float)
+                    for v, p in dist.items():
+                        for m in MULTIPLIERS:
+                            new_dist[v + eff_bases[s] * m] += p * 0.25
+                    dist = dict(new_dist)
+            # Then add the randomly distributed rolls from stat_path
             for s in stat_path:
                 if collapsed_name(s) == lbl:
                     new_dist = defaultdict(float)
@@ -118,7 +127,14 @@ def run_analysis(selected_stats, num_rolls, guarantee_stats, guarantee_count, ba
 
         per_raw = {}
         if focus_needs_raw_dist:
+            # 1 guaranteed base roll for focus stat
             dist = {0: 1.0}
+            new_dist = defaultdict(float)
+            for v, p in dist.items():
+                for m in MULTIPLIERS:
+                    new_dist[v + eff_bases[focus] * m] += p * 0.25
+            dist = dict(new_dist)
+            # Then add randomly distributed rolls from stat_path
             for s in stat_path:
                 if s == focus:
                     new_dist = defaultdict(float)

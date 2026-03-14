@@ -58,11 +58,12 @@ def run_analysis(selected_stats, num_rolls, guarantee_stats, guarantee_count, ba
     if weights is None:
         weights = {s: 1.0 for s in selected_stats}
 
-    # Effective bases: weighted for combined mode, unweighted for single stat mode
+    # Per-roll unit: one max-tier roll = 100 RV, weighted for combined mode
+    ROLL_UNIT = 100
     if mode == 'combined':
-        eff_bases = {s: bases[s] * weights[s] for s in selected_stats}
+        eff_bases = {s: ROLL_UNIT * weights[s] for s in selected_stats}
     else:
-        eff_bases = bases
+        eff_bases = {s: ROLL_UNIT for s in selected_stats}
 
     lines = []
     out = lines.append

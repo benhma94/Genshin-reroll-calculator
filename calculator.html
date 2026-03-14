@@ -354,9 +354,10 @@ function runAnalysis(selectedStats, numRolls, guaranteeStats, guaranteeCount,
                      bases, mode, focus, weights, focusStats) {
   if (!weights)  weights = Object.fromEntries(selectedStats.map(s => [s, 1.0]));
 
+  const ROLL_UNIT = 100; // one max-tier roll = 100 RV
   const effBases = {};
   for (const s of selectedStats)
-    effBases[s] = mode === 'combined' ? bases[s] * weights[s] : bases[s];
+    effBases[s] = mode === 'combined' ? ROLL_UNIT * weights[s] : ROLL_UNIT;
 
   const lines = [];
   const out = s => lines.push(s);

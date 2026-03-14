@@ -154,7 +154,7 @@ def run_analysis(selected_stats, num_rolls, guarantee_stats, guarantee_count, ba
         return str(int(v)) if v == int(v) else f"{v:.1f}"
 
     if mode == 'combined':
-        focus_base_display = sum(eff_bases[s] for s in selected_stats)
+        focus_base_display = sum(bases[s] * weights[s] for s in selected_stats)
         focus_label = "All stats (weighted)" if non_default_weights else "All stats"
     elif focus_is_raw:
         focus_base_display = bases[focus]

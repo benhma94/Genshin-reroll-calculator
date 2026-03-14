@@ -7,15 +7,20 @@ from tkinter import scrolledtext, messagebox
 
 ALL_STATS = ['HP%', 'ATK%', 'CR', 'CD', 'ER', 'EM', 'FH', 'FA', 'FD', 'Def%']
 
-COLLAPSE = {'CR': 'C', 'CD': 'C', 'FH': 'F', 'FA': 'F', 'FD': 'F'}
+COLLAPSE = {'CR': 'Crit Value', 'CD': 'Crit Value', 'FH': 'F', 'FA': 'F', 'FD': 'F'}
 
 GROUPS = [
     ("Other", ['HP%', 'ATK%', 'ER', 'EM', 'Def%']),
-    ("C-group  (→ C)", ['CR', 'CD']),
+    ("Crit Value (CR+CD)", ['CR', 'CD']),
     ("F-group  (→ F)", ['FH', 'FA', 'FD']),
 ]
 
 MULTIPLIERS = [7, 8, 9, 10]  # 70%, 80%, 90%, 100% as integer tenths
+
+MAX_ROLL = {
+    'HP%': 5.83, 'ATK%': 5.83, 'CR': 3.89, 'CD': 7.77,
+    'ER': 6.48, 'EM': 23.31, 'FH': 298.75, 'FA': 19.45, 'FD': 23.15, 'Def%': 7.29
+}
 
 
 def collapsed_name(s):
@@ -46,7 +51,7 @@ def run_analysis(selected_stats, num_rolls, guarantee_stats, guarantee_count, ba
     """
     mode: 'combined' → compare grand total vs sum of all bases
           'single'   → compare one stat/label vs its base
-    focus: for 'single' mode — a raw stat (e.g. 'CR') or collapsed label (e.g. 'C')
+    focus: for 'single' mode — a raw stat (e.g. 'CR') or collapsed label (e.g. 'Crit Value')
     weights: dict of stat → float multiplier for combined mode scoring. Defaults to all 1.0.
              Ignored in single stat mode.
     """
@@ -362,8 +367,14 @@ def main():
                 guarantee_widgets[lbl].config(state=state)
 
     # Base values section
-    frame_bases = tk.LabelFrame(root, text="Base Values (%)", padx=8, pady=5)
+    frame_bases = tk.LabelFrame(root, text="Roll Values", padx=8, pady=5)
     frame_bases.pack(padx=10, pady=(5, 0), fill='x')
+
+    base_input_mode = tk.StringVar(value='rv')  # 'rv' or 'actual'
+    mode_row = tk.Frame(frame_bases)
+    mode_row.pack(anchor='w')
+    tk.Radiobutton(mode_row, text="Roll Value", variable=base_input_mode, value='rv').pack(side='left')
+    tk.Radiobutton(mode_row, text="Actual Stat", variable=base_input_mode, value='actual').pack(side='left')
 
     base_vars = {}
     base_widgets = {}
@@ -376,7 +387,10 @@ def main():
         valid = True
         for s in selected:
             try:
-                v = int(base_vars[s].get())
+                if base_input_mode.get() == 'actual':
+                    v = round(float(base_vars[s].get()) / MAX_ROLL[s] * 100)
+                else:
+                    v = int(base_vars[s].get())
                 total += v
             except (ValueError, KeyError):
                 valid = False
@@ -386,8 +400,9 @@ def main():
         else:
             base_sum_label.config(text="Sum: — / 900", fg='black')
 
-    def rebuild_base_spinboxes():
+    def rebuild_base_spinboxes(*_):
         selected = [s for s in ALL_STATS if checkbox_vars[s].get()]
+        actual = base_input_mode.get() == 'actual'
 
         for s in list(base_vars.keys()):
             if s not in selected:
@@ -405,20 +420,51 @@ def main():
         inner.pack(fill='x')
         rebuild_base_spinboxes._inner = inner
 
+        cols_per_row = 3 if actual else 4
         for i, s in enumerate(selected):
+            if actual:
+                default = str(MAX_ROLL[s])
+                from_ = round(MAX_ROLL[s] * 0.7, 2)
+                to_ = round(MAX_ROLL[s] * 5, 2)
+                inc = 0.01
+            else:
+                default = '200'
+                from_ = 70
+                to_ = 500
+                inc = 1
+
             if s not in base_vars:
-                base_vars[s] = tk.StringVar(value='200')
+                base_vars[s] = tk.StringVar(value=default)
             base_vars[s].trace_add('write', update_base_sum)
 
-            row, col = divmod(i, 4)
+            row, col = divmod(i, cols_per_row)
+            base_col = col * (3 if actual else 2)
+
             lbl = tk.Label(inner, text=f"{s}:")
-            lbl.grid(row=row, column=col * 2, padx=(8, 2), pady=2, sticky='e')
-            spb = tk.Spinbox(inner, textvariable=base_vars[s], from_=70, to=500,
-                             increment=1, width=5)
-            spb.grid(row=row, column=col * 2 + 1, padx=(0, 8), pady=2, sticky='w')
-            base_widgets[s] = (lbl, spb)
+            lbl.grid(row=row, column=base_col, padx=(8, 2), pady=2, sticky='e')
+            spb = tk.Spinbox(inner, textvariable=base_vars[s], from_=from_, to=to_,
+                             increment=inc, width=6, format='%.2f' if actual else '%d')
+            spb.grid(row=row, column=base_col + 1, padx=(0, 2), pady=2, sticky='w')
+
+            if actual:
+                rv_lbl = tk.Label(inner, text="→RV:?", fg='gray', font=('TkDefaultFont', 9))
+                rv_lbl.grid(row=row, column=base_col + 2, padx=(0, 8), pady=2, sticky='w')
+                def make_rv_updater(stat, label):
+                    def upd(*_):
+                        try:
+                            rv = round(float(base_vars[stat].get()) / MAX_ROLL[stat] * 100)
+                            label.config(text=f"→RV:{rv}")
+                        except ValueError:
+                            label.config(text="→RV:?")
+                    return upd
+                base_vars[s].trace_add('write', make_rv_updater(s, rv_lbl))
+                base_widgets[s] = (lbl, spb, rv_lbl)
+            else:
+                base_widgets[s] = (lbl, spb)
 
         update_base_sum()
+
+    base_input_mode.trace_add('write', rebuild_base_spinboxes)
 
     # Stat weights section (combined mode only)
     frame_weights = tk.LabelFrame(root, text="Stat Weights (Combined mode only)", padx=8, pady=5)
@@ -556,7 +602,7 @@ def main():
             if not sel_idx:
                 messagebox.showwarning("Focus", "Please select a focus stat.")
                 return
-            focus = focus_listbox.get(sel_idx[0]).split()[0]  # "C (CR+CD)" → "C"
+            focus = focus_listbox.get(sel_idx[0]).split(' (')[0]  # "Crit Value (CR+CD)" → "Crit Value"
         elif mode == 'rollcount':
             focus_stats = set(s for s, v in rollcount_vars.items() if v.get())
             if not focus_stats:
@@ -566,20 +612,24 @@ def main():
         g_stats = [lbl for lbl, v in guarantee_vars.items() if v.get()]
 
         bases = {}
+        actual_mode = base_input_mode.get() == 'actual'
         for s in selected:
             try:
-                v = int(base_vars[s].get())
+                if actual_mode:
+                    v = round(float(base_vars[s].get()) / MAX_ROLL[s] * 100)
+                else:
+                    v = int(base_vars[s].get())
             except ValueError:
-                messagebox.showwarning("Base Values", f"Invalid base value for {s}.")
+                messagebox.showwarning("Roll Values", f"Invalid roll value for {s}.")
                 return
             if not (70 <= v <= 500):
-                messagebox.showwarning("Base Values", f"Base for {s} must be between 70 and 500.")
+                messagebox.showwarning("Roll Values", f"Roll value for {s} must be between 70 and 500 (got {v}).")
                 return
             bases[s] = v
 
         if sum(bases.values()) > 900:
-            messagebox.showwarning("Base Values",
-                                   f"Sum of base values is {sum(bases.values())}%, which exceeds 900%.")
+            messagebox.showwarning("Roll Values",
+                                   f"Sum of roll values is {sum(bases.values())}%, which exceeds 900%.")
             return
 
         weights = {}

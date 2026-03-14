@@ -211,9 +211,14 @@
   </div>
 </div>
 
-<!-- Base values -->
+<!-- Roll values -->
 <div class="card">
-  <div class="card-title">Base Values (%)</div>
+  <div class="card-title">Roll Values
+    <span style="font-weight:normal;font-size:12px;margin-left:10px">
+      <label><input type="radio" name="base-mode" value="rv" checked> Roll Value</label>
+      <label style="margin-left:8px"><input type="radio" name="base-mode" value="actual"> Actual Stat</label>
+    </span>
+  </div>
   <div class="spin-grid" id="base-grid">
     <span style="color:#aaa;font-size:12px">Select stats above</span>
   </div>
@@ -258,13 +263,17 @@
 <script>
 // ─── Constants ────────────────────────────────────────────────────────────────
 const ALL_STATS = ['HP%', 'ATK%', 'CR', 'CD', 'ER', 'EM', 'FH', 'FA', 'FD', 'Def%'];
-const COLLAPSE = {CR:'C', CD:'C', FH:'F', FA:'F', FD:'F'};
+const COLLAPSE = {CR:'Crit Value', CD:'Crit Value', FH:'F', FA:'F', FD:'F'};
 const GROUPS = [
   {name: 'Other',           stats: ['HP%', 'ATK%', 'ER', 'EM', 'Def%']},
-  {name: 'C-group (→ C)',   stats: ['CR', 'CD']},
+  {name: 'Crit Value (CR+CD)',   stats: ['CR', 'CD']},
   {name: 'F-group (→ F)',   stats: ['FH', 'FA', 'FD']},
 ];
 const MULTIPLIERS = [7, 8, 9, 10];
+const MAX_ROLL = {
+  'HP%':5.83, 'ATK%':5.83, 'CR':3.89, 'CD':7.77,
+  'ER':6.48, 'EM':23.31, 'FH':298.75, 'FA':19.45, 'FD':23.15, 'Def%':7.29
+};
 
 function collapsedName(s) { return COLLAPSE[s] || s; }
 
@@ -590,17 +599,20 @@ function runAnalysis(selectedStats, numRolls, guaranteeStats, guaranteeCount,
 
 // ─── UI State ─────────────────────────────────────────────────────────────────
 const statChecked      = {};   // stat -> bool
-const baseValues       = {};   // stat -> number (default 200)
+const baseValues       = {};   // stat -> number (default 200), used in RV mode
+const baseActualValues = {};   // stat -> float, used in Actual Stat mode
+let   baseModeActual   = false;
 const weightValues     = {};   // stat -> number (default 1.0)
 const guarChecked      = {};   // stat -> bool (default false)
 const rollCountChecked = {};   // stat -> bool (default false)
 
 for (const s of ALL_STATS) {
-  statChecked[s]      = false;
-  baseValues[s]       = 200;
-  weightValues[s]     = 1.0;
-  guarChecked[s]      = false;
-  rollCountChecked[s] = false;
+  statChecked[s]       = false;
+  baseValues[s]        = 200;
+  baseActualValues[s]  = MAX_ROLL[s];
+  weightValues[s]      = 1.0;
+  guarChecked[s]       = false;
+  rollCountChecked[s]  = false;
 }
 
 function getSelected()   { return ALL_STATS.filter(s => statChecked[s]); }
@@ -698,7 +710,9 @@ function updateBaseSum() {
   const selected = getSelected();
   const el = document.getElementById('base-sum');
   if (!selected.length) { el.textContent = 'Sum: — / 900'; el.className = 'sum-label'; return; }
-  const total = selected.reduce((a, s) => a + (baseValues[s] || 0), 0);
+  const total = baseModeActual
+    ? selected.reduce((a, s) => a + Math.round(((baseActualValues[s] || MAX_ROLL[s]) / MAX_ROLL[s]) * 100), 0)
+    : selected.reduce((a, s) => a + (baseValues[s] || 0), 0);
   el.textContent = `Sum: ${total} / 900`;
   el.className = total > 900 ? 'sum-label over' : 'sum-label';
 }
@@ -713,21 +727,44 @@ function rebuildBaseGrid() {
     return;
   }
   for (const s of selected) {
-    if (!(s in baseValues) || baseValues[s] === undefined) baseValues[s] = 200;
     const item = document.createElement('div');
     item.className = 'spin-item';
     const lbl = document.createElement('label');
     lbl.textContent = s + ':';
-    const inp = document.createElement('input');
-    inp.type = 'number';
-    inp.min = 70; inp.max = 500; inp.step = 1;
-    inp.value = baseValues[s];
-    inp.addEventListener('input', e => {
-      baseValues[s] = parseInt(e.target.value) || 0;
-      updateBaseSum();
-    });
     item.appendChild(lbl);
-    item.appendChild(inp);
+    if (baseModeActual) {
+      const maxV = MAX_ROLL[s];
+      if (!(s in baseActualValues)) baseActualValues[s] = maxV;
+      const inp = document.createElement('input');
+      inp.type = 'number';
+      inp.min = parseFloat((maxV * 0.7).toFixed(2));
+      inp.max = parseFloat((maxV * 5).toFixed(2));
+      inp.step = 0.01;
+      inp.value = baseActualValues[s];
+      const rvLbl = document.createElement('span');
+      rvLbl.style.cssText = 'color:#aaa;font-size:11px;margin-left:3px';
+      const refreshRV = () => {
+        const rv = Math.round((parseFloat(inp.value) / maxV) * 100);
+        rvLbl.textContent = `→RV:${isNaN(rv) ? '?' : rv}`;
+        baseActualValues[s] = parseFloat(inp.value) || maxV;
+        updateBaseSum();
+      };
+      inp.addEventListener('input', refreshRV);
+      refreshRV();
+      item.appendChild(inp);
+      item.appendChild(rvLbl);
+    } else {
+      if (!(s in baseValues) || baseValues[s] === undefined) baseValues[s] = 200;
+      const inp = document.createElement('input');
+      inp.type = 'number';
+      inp.min = 70; inp.max = 500; inp.step = 1;
+      inp.value = baseValues[s];
+      inp.addEventListener('input', e => {
+        baseValues[s] = parseInt(e.target.value) || 0;
+        updateBaseSum();
+      });
+      item.appendChild(inp);
+    }
     container.appendChild(item);
   }
   updateBaseSum();
@@ -836,6 +873,13 @@ function onStatChange() {
   rebuildRollCountStats();
 }
 
+document.querySelectorAll('input[name="base-mode"]').forEach(r => {
+  r.addEventListener('change', () => {
+    baseModeActual = (r.value === 'actual');
+    rebuildBaseGrid();
+  });
+});
+
 // ─── Run Analysis ─────────────────────────────────────────────────────────────
 
 document.getElementById('btn-run').addEventListener('click', () => {
@@ -848,8 +892,6 @@ document.getElementById('btn-run').addEventListener('click', () => {
   if (mode === 'single') {
     const sel = document.getElementById('focus-list');
     focus = sel.value;
-    // strip display suffix like "C (CR+CD)" → "C"
-    if (focus) focus = focus.split(' ')[0];
     if (!focus) { showAlert('Please select a focus stat.'); return; }
   } else if (mode === 'rollcount') {
     focusStats = new Set(selected.filter(s => rollCountChecked[s]));
@@ -858,15 +900,21 @@ document.getElementById('btn-run').addEventListener('click', () => {
 
   const bases = {};
   for (const s of selected) {
-    const v = baseValues[s];
+    let v;
+    if (baseModeActual) {
+      const actual = parseFloat(baseActualValues[s]);
+      v = Math.round((actual / MAX_ROLL[s]) * 100);
+    } else {
+      v = baseValues[s];
+    }
     if (!Number.isInteger(v) || v < 70 || v > 500) {
-      showAlert(`Base value for ${s} must be a whole number between 70 and 500.`);
+      showAlert(`Roll value for ${s} must be between 70 and 500 (got ${v}).`);
       return;
     }
     bases[s] = v;
   }
   const total = selected.reduce((a, s) => a + bases[s], 0);
-  if (total > 900) { showAlert(`Sum of base values is ${total}%, which exceeds 900%.`); return; }
+  if (total > 900) { showAlert(`Sum of roll values is ${total}%, which exceeds 900%.`); return; }
 
   const weights = {};
   for (const s of selected) {
